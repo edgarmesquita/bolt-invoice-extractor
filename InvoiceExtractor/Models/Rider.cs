@@ -1,4 +1,5 @@
 ﻿using System.Text.Json.Serialization;
+using Bolt.Business.InvoiceExtractor.Converters;
 
 namespace Bolt.Business.InvoiceExtractor.Models;
 
@@ -8,7 +9,8 @@ public sealed class Rider
     public string? Id { get; set; }
     
     [JsonPropertyName("order_timestamp")]
-    public long OrderTimestamp { get; set; }
+    [JsonConverter(typeof(UnixDateTimeConverter))]
+    public DateTime OrderTimestamp { get; set; }
     
     [JsonPropertyName("invoice_link")]
     public string? InvoiceLink { get; set; }

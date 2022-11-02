@@ -1,1 +1,5 @@
-# bolt-invoice-extractor
+# Bolt Invoice Extractor
+
+```csharp
+dotnet run --project ./InvoiceExtractor/InvoiceExtractor.csproj
+```

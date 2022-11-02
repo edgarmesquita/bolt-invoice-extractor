@@ -7,200 +7,183 @@ namespace Bolt.Business.InvoiceExtractor;
 
 public class Extractor : IDisposable
 {
-    private readonly HttpClient _client;
-    private readonly Guid _sessionId;
-
+    private readonly BusinessPortalClient _client;
+    
     public Extractor()
     {
-        _client = new HttpClient();
-        _sessionId = Guid.NewGuid();
+        _client = new BusinessPortalClient();
     }
 
-    private async Task<AuthenticationToken> StartAuthentication(string username, string password)
+    private static LoginRequest? GetLoginRequest()
     {
-        var response = await _client.PostAsync(
-            $"https://node.bolt.eu/business-portal/businessPortal/startAuthentication?version=BP.11.58&session_id={_sessionId}",
-            JsonContent.Create(new AuthenticationRequest
-            {
-                DeviceUid = "22985b26-5113-4f1f-a32d-9c11bbf1ef4c",
-                DeviceName = "Chrome (Windows)",
-                DeviceOsVersion = "106.0.0.0",
-                Username = username,
-                Password = password
-            }));
-        var content = await response.Content.ReadFromJsonAsync<AuthenticationResponse>();
-
-        return content is { Message: "OK", Data: { } } ? content.Data : throw new Exception(content?.Message ?? "Bad Request when starting authentication");
-    }
-
-    private async Task<RefreshTokenData> CompleteAuthentication(string sms, string verificationToken)
-    {
-        var confirmationResponse = await _client.PostAsync(
-            $"https://node.bolt.eu/business-portal/businessPortal/completeAuthentication?version=BP.11.58&session_id={_sessionId}",
-            JsonContent.Create(new AuthenticationConfirmationRequest
-            {
-                DeviceUid = "22985b26-5113-4f1f-a32d-9c11bbf1ef4c",
-                DeviceName = "Chrome (Windows)",
-                DeviceOsVersion = "106.0.0.0",
-                Code = sms,
-                VerificationToken = verificationToken
-            }));
-
-        var content = await confirmationResponse.Content.ReadFromJsonAsync<AuthenticationConfirmationResponse>();
-
-        return content is { Message: "OK", Data: { } } ? content.Data : throw new Exception(content?.Message ?? "Bad Request when completing authentication");
-    }
-
-    private async Task<AccessTokenData> GetAccessTokenAsync(string refreshToken)
-    {
-        var accessTokenResponse = await _client.PostAsync(
-            $"https://node.bolt.eu/business-portal/businessPortal/getAccessToken?version=BP.11.58&session_id={_sessionId}",
-            JsonContent.Create(new RefreshTokenData
-            {
-                RefreshToken = refreshToken
-            }));
-
-        var content = await accessTokenResponse.Content.ReadFromJsonAsync<AccessTokenResponse>();
-
-        return content is  { Message: "OK", Data: { } } ?  content.Data : throw new Exception(content?.Message ?? "Bad Request when getting access token");
-    }
-
-    private async Task<UserInfo> GetUserInfoAsync(string accessToken)
-    {
-        using var requestMessage = new HttpRequestMessage(HttpMethod.Get,
-            $"https://node.bolt.eu/business-portal/businessPortalUser/getUserInfo/?version=BP.11.58&session_id={_sessionId}");
-        requestMessage.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-        
-        var userResponse = await _client.SendAsync(requestMessage);
-        var content = await userResponse.Content.ReadFromJsonAsync<UserInfoResponse>();
-        
-        return content is { Message: "OK", Data: { } } ? content.Data : throw new Exception(content?.Message ?? "Bad Request when getting user info");
-    }
-
-    private async Task<RiderListData> GetRiderPage(string accessToken, int companyId, int page, int limit = 100)
-    {
-        using var requestMessage = new HttpRequestMessage(HttpMethod.Get,
-            $"https://node.bolt.eu/business-portal/businessPortal/getRidesHistory/?version=BP.11.58&session_id={_sessionId}&company_id={companyId}&limit={limit}&page={page}");
-        requestMessage.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-        
-        var listResponse = await _client.SendAsync(requestMessage);
-        var content = await listResponse.Content.ReadFromJsonAsync<RiderListResponse>();
-
-        return content is { Message: "OK", Data: { } } ? content.Data : throw new Exception(content?.Message ?? "Bad Request when getting riders");
-    }
-    public async Task ExtractAsync()
-    {
-        Console.WriteLine("Type your username:");
-        var username = Console.ReadLine();
-
-        if (string.IsNullOrEmpty(username))
+        var loginRequest = new LoginRequest
         {
-            Console.WriteLine("Invalid Username");
-            Console.ReadLine();
-            return;
-        }
+            Username = ReadString("Type your username:", "Invalid Username")
+        };
 
-        Console.WriteLine("Type your password:");
-        var password = ReadLineMasked();
+        if (string.IsNullOrEmpty(loginRequest.Username))
+            return null;
         
-        if (string.IsNullOrEmpty(password))
-        {
-            Console.WriteLine("Invalid Password");
-            Console.ReadLine();
-            return;
-        }
+        
+        loginRequest.Password = ReadLineMasked("Type your password:", "Invalid Password");
+
+        return string.IsNullOrEmpty(loginRequest.Password) ? null : loginRequest;
+    }
+
+    private async Task<string?> GetAccessTokenAsync()
+    {
+        var loginRequest = GetLoginRequest();
+        if (loginRequest == null) return null;
 
         string? verificationToken;
         try
         {
-            var authenticationToken = await StartAuthentication(username, password);
+            var authenticationToken = await _client.StartAuthenticationAsync(loginRequest);
             verificationToken = authenticationToken.VerificationToken;
         }
         catch (Exception ex)
         {
-            Console.WriteLine(ex.Message);
-            Console.ReadLine();
-            return;
+            DisplayError(ex);
+            return null;
         }
 
-        Console.WriteLine("Type sms code:");
-        var sms = Console.ReadLine();
+        var sms = ReadString("Type sms code:", "Invalid SMS Code");
 
         if (string.IsNullOrEmpty(sms))
-        {
-            Console.WriteLine("Invalid SMS Code");
-            Console.ReadLine();
-            return;
-        }
+            return null;
+        
 
         string? refreshToken;
         try
         {
-            var refreshTokenData = await CompleteAuthentication(sms, verificationToken);
+            var refreshTokenData = await _client.CompleteAuthenticationAsync(sms, verificationToken);
             refreshToken = refreshTokenData.RefreshToken;
         }
         catch (Exception ex)
         {
-            Console.WriteLine(ex.Message);
-            Console.ReadLine();
-            return;
+            DisplayError(ex);
+            return null;
         }
 
         string? accessToken;
         try
         {
-            var accessTokenData = await GetAccessTokenAsync(refreshToken);
+            var accessTokenData = await _client.GetAccessTokenAsync(refreshToken);
             accessToken = accessTokenData.AccessToken;
         }
         catch (Exception ex)
         {
-            Console.WriteLine(ex.Message);
-            Console.ReadLine();
-            return;
+            DisplayError(ex);
+            return null;
         }
 
+        return accessToken;
+    }
+
+    public async Task ExtractAsync()
+    {
+        var accessToken = await GetAccessTokenAsync();
+        if (string.IsNullOrEmpty(accessToken)) return;
+        
         int userId;
         try
         {
-            var userInfo = await GetUserInfoAsync(accessToken!);
+            var userInfo = await _client.GetUserInfoAsync(accessToken!);
             userId = userInfo.Id;
         }
         catch (Exception ex)
         {
-            Console.WriteLine(ex.Message);
-            Console.ReadLine();
+            DisplayError(ex);
             return;
         }
 
-        Console.WriteLine("Reading Page 1");
+        var list = await GetAMonthOfRidersAsync(accessToken, userId);
 
-        RiderListData page1;
+        foreach (var rider in list)
+        {
+            await _client.DownloadFileAsync(rider.InvoiceLink!, $"{rider.Id}.pdf");
+        }
+    }
+
+    private async Task<IEnumerable<Rider>> GetAMonthOfRidersAsync(string accessToken, int userId)
+    {
+        var year = ReadInteger("Type an year", "Invalid year. Assuming current year") ?? DateTime.Now.Year;
+        var month = ReadInteger("Type a month (integer between 1 and 12)", "Invalid month. Assuming current month") ?? DateTime.Now.Month;
+        var startDate = new DateTime(year, month, 1);
+        var endDate = new DateTime(year, month, 1).AddMonths(1).AddTicks(-1);
+
+        var list = new List<Rider>();
+        (IEnumerable<Rider> List, int TotalPages) currentPage;
         try
         {
-            page1 = await GetRiderPage(accessToken!, userId, 1);
+            currentPage = await GetFilteredRiders(accessToken, userId, startDate, endDate, 1);
+            list.AddRange(currentPage.List);
         }
         catch (Exception ex)
         {
-            Console.WriteLine(ex.Message);
-            Console.ReadLine();
-            return;
+            DisplayError(ex);
+            return Enumerable.Empty<Rider>();
         }
-        
-        foreach (var rider in page1.List.Where(rider => !string.IsNullOrEmpty(rider.InvoiceLink)))
+
+        if (currentPage.TotalPages > 1 && list.Any())
         {
-            await DownloadFileAsync(rider.InvoiceLink!, $"{rider.Id}.pdf");
+            var pages = Enumerable.Range(2, currentPage.TotalPages - 1);
+            foreach (var page in pages)
+            {
+                var filteredPage = await GetFilteredRiders(accessToken, userId, startDate, endDate, page);
+                if(!filteredPage.List.Any())
+                    break;
+                
+                list.AddRange(filteredPage.List);
+            }
         }
+
+        return list;
     }
 
-    private async Task DownloadFileAsync(string url, string filename)
+    private async Task<(IEnumerable<Rider> List, int TotalPages)> GetFilteredRiders(string accessToken, int userId, DateTime startDate, DateTime endDate, int page)
     {
-        var response = await _client.GetAsync(url);
-        await using var fileStream = new FileStream(filename, FileMode.CreateNew);
-        await response.Content.CopyToAsync(fileStream);
+        var currentPage = await _client.GetRiderPageAsync(accessToken, userId, page);
+        return (currentPage.List
+            .Where(rider => !string.IsNullOrEmpty(rider.InvoiceLink) && rider.OrderTimestamp >= startDate && rider.OrderTimestamp <= endDate)
+            .ToList(), currentPage.Pagination.TotalPages);
     }
 
-    private static string ReadLineMasked(char mask = '*')
+    private static void DisplayError(Exception ex)
     {
+        Console.WriteLine(ex.Message);
+        Console.ReadLine();
+    }
+
+    private static string? ReadString(string label, string errorMessage)
+    {
+        Console.WriteLine(label);
+        
+        var text = Console.ReadLine();
+
+        if (!string.IsNullOrEmpty(text)) 
+            return text;
+        
+        Console.WriteLine(errorMessage);
+        Console.ReadLine();
+        return null;
+    }
+
+    private static int? ReadInteger(string label, string errorMessage)
+    {
+        var value = ReadString(label, errorMessage);
+
+        if (int.TryParse(value, out var result))
+            return result;
+        
+        Console.WriteLine(errorMessage);
+        Console.ReadLine();
+        return null;
+    }
+    private static string? ReadLineMasked(string label, string errorMessage, char mask = '*')
+    {
+        Console.WriteLine(label);
+        
         var sb = new StringBuilder();
         ConsoleKeyInfo keyInfo;
         while ((keyInfo = Console.ReadKey(true)).Key != ConsoleKey.Enter)
@@ -223,10 +206,17 @@ public class Extractor : IDisposable
                 else Console.Write("\b \b");
             }
         }
+
         Console.WriteLine();
-        return sb.ToString();
+        var result = sb.ToString();
+        if (!string.IsNullOrEmpty(result))
+            return result;
+        
+        Console.WriteLine(errorMessage);
+        Console.ReadLine();
+        return null;
     }
-    
+
     public void Dispose()
     {
         _client.Dispose();
