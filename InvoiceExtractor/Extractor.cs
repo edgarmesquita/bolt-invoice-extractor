@@ -1,4 +1,5 @@
-﻿using System.Net.Http.Headers;
+﻿using System.IdentityModel.Tokens.Jwt;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using Bolt.Business.InvoiceExtractor.Models;
@@ -8,7 +9,7 @@ namespace Bolt.Business.InvoiceExtractor;
 public class Extractor : IDisposable
 {
     private readonly BusinessPortalClient _client;
-    
+    //594dcd56-0f8e-4a89-b0d4-b6f406cd89c0b1667597933
     public Extractor()
     {
         _client = new BusinessPortalClient();
@@ -79,16 +80,18 @@ public class Extractor : IDisposable
 
         return accessToken;
     }
-
+    
     public async Task ExtractAsync()
     {
         var accessToken = await GetAccessTokenAsync();
         if (string.IsNullOrEmpty(accessToken)) return;
         
+        _client.UpdateSessionId(accessToken);
+        
         int userId;
         try
         {
-            var userInfo = await _client.GetUserInfoAsync(accessToken!);
+            var userInfo = await _client.GetUserInfoAsync(accessToken);
             userId = userInfo.Id;
         }
         catch (Exception ex)
@@ -105,15 +108,15 @@ public class Extractor : IDisposable
         }
     }
 
-    private async Task<IEnumerable<Rider>> GetAMonthOfRidersAsync(string accessToken, int userId)
+    private async Task<IEnumerable<Ride>> GetAMonthOfRidersAsync(string accessToken, int userId)
     {
         var year = ReadInteger("Type an year", "Invalid year. Assuming current year") ?? DateTime.Now.Year;
         var month = ReadInteger("Type a month (integer between 1 and 12)", "Invalid month. Assuming current month") ?? DateTime.Now.Month;
         var startDate = new DateTime(year, month, 1);
         var endDate = new DateTime(year, month, 1).AddMonths(1).AddTicks(-1);
 
-        var list = new List<Rider>();
-        (IEnumerable<Rider> List, int TotalPages) currentPage;
+        var list = new List<Ride>();
+        (IEnumerable<Ride> List, int TotalPages) currentPage;
         try
         {
             currentPage = await GetFilteredRiders(accessToken, userId, startDate, endDate, 1);
@@ -122,7 +125,7 @@ public class Extractor : IDisposable
         catch (Exception ex)
         {
             DisplayError(ex);
-            return Enumerable.Empty<Rider>();
+            return Enumerable.Empty<Ride>();
         }
 
         if (currentPage.TotalPages > 1 && list.Any())
@@ -141,7 +144,7 @@ public class Extractor : IDisposable
         return list;
     }
 
-    private async Task<(IEnumerable<Rider> List, int TotalPages)> GetFilteredRiders(string accessToken, int userId, DateTime startDate, DateTime endDate, int page)
+    private async Task<(IEnumerable<Ride> List, int TotalPages)> GetFilteredRiders(string accessToken, int userId, DateTime startDate, DateTime endDate, int page)
     {
         var currentPage = await _client.GetRiderPageAsync(accessToken, userId, page);
         return (currentPage.List

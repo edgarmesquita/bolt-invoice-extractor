@@ -8,11 +8,11 @@ public class UnixDateTimeConverter : JsonConverter<DateTime>
 {
     public override DateTime Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
-        return reader.GetInt64().FromUnixTime();
+        return reader.GetInt64().FromUnixTimeInSeconds();
     }
 
     public override void Write(Utf8JsonWriter writer, DateTime value, JsonSerializerOptions options)
     {
-        writer.WriteNumberValue(value.ToUnixTime());
+        writer.WriteNumberValue(value.ToUnixTimeInSeconds());
     }
 }

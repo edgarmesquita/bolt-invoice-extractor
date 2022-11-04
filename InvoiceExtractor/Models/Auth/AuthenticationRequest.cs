@@ -1,15 +1,9 @@
 ﻿using System.Text.Json.Serialization;
 
-namespace Bolt.Business.InvoiceExtractor.Models;
+namespace Bolt.Business.InvoiceExtractor.Models.Auth;
 
-public class AuthenticationConfirmationRequest
+public class AuthenticationRequest
 {
-    [JsonPropertyName("verification_token")]
-    public string? VerificationToken { get; set; }
-    
-    [JsonPropertyName("code")]
-    public string? Code { get; set; }
-    
     [JsonPropertyName("device_uid")]
     public string? DeviceUid { get; set; }
     
@@ -18,4 +12,10 @@ public class AuthenticationConfirmationRequest
     
     [JsonPropertyName("device_os_version")]
     public string? DeviceOsVersion { get; set; }
+    
+    [JsonPropertyName("username")]
+    public string? Username { get; set; }
+    
+    [JsonPropertyName("password")]
+    public string? Password { get; set; }
 }

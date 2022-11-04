@@ -2,10 +2,10 @@
 
 namespace Bolt.Business.InvoiceExtractor.Models;
 
-public sealed class RiderListData
+public sealed class RideListData
 {
     [JsonPropertyName("list")]
-    public List<Rider> List { get; set; } = new();
+    public List<Ride> List { get; set; } = new();
 
     [JsonPropertyName("pagination")]
     public BoltPagination Pagination { get; set; } = new();

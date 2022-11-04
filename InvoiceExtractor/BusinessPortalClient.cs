@@ -1,19 +1,24 @@
-﻿using System.Net.Http.Headers;
+﻿using System.IdentityModel.Tokens.Jwt;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
+using Bolt.Business.InvoiceExtractor.Extensions;
 using Bolt.Business.InvoiceExtractor.Models;
+using Bolt.Business.InvoiceExtractor.Models.Auth;
 
 namespace Bolt.Business.InvoiceExtractor;
 
 public class BusinessPortalClient : IDisposable
 {
     private readonly HttpClient _client;
-    private readonly Guid _sessionId;
+    private string _sessionId;
     private readonly Guid _deviceUid;
-
+    private readonly long _startTimestamp;
     public BusinessPortalClient()
     {
         _client = new HttpClient();
-        _sessionId = Guid.NewGuid();
+        _startTimestamp = DateTime.UtcNow.ToUnixTimeInSeconds();
+        _sessionId = Guid.NewGuid() + "b" + _startTimestamp;
         _deviceUid = Guid.NewGuid(); //22985b26-5113-4f1f-a32d-9c11bbf1ef4c
     }
 
@@ -86,14 +91,14 @@ public class BusinessPortalClient : IDisposable
             : throw new Exception(content?.Message ?? "Bad Request when getting user info");
     }
 
-    public async Task<RiderListData> GetRiderPageAsync(string accessToken, int companyId, int page, int limit = 100)
+    public async Task<RideListData> GetRiderPageAsync(string accessToken, int companyId, int page, int limit = 100)
     {
         using var requestMessage = new HttpRequestMessage(HttpMethod.Get,
             $"https://node.bolt.eu/business-portal/businessPortal/getRidesHistory/?version=BP.11.58&session_id={_sessionId}&company_id={companyId}&limit={limit}&page={page}");
         requestMessage.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
         var listResponse = await _client.SendAsync(requestMessage);
-        var content = await listResponse.Content.ReadFromJsonAsync<RiderListResponse>();
+        var content = await listResponse.Content.ReadFromJsonAsync<RideListResponse>();
 
         return content is { Message: "OK", Data: { } }
             ? content.Data
@@ -110,5 +115,21 @@ public class BusinessPortalClient : IDisposable
     public void Dispose()
     {
         _client.Dispose();
+    }
+    
+    public void UpdateSessionId(string accessToken)
+    {
+        var handler = new JwtSecurityTokenHandler();
+        var jwtSecurityToken = handler.ReadJwtToken(accessToken);
+        var dataClaimJson = jwtSecurityToken.Claims
+            .FirstOrDefault(claim => claim.Type == "data")?.Value;
+
+        if (string.IsNullOrEmpty(dataClaimJson))
+            return;
+
+        var dataClaim = JsonSerializer.Deserialize<DataClaim>(dataClaimJson);
+        
+        if(dataClaim?.BusinessAdminUserId > 0)
+            _sessionId = $"{dataClaim.BusinessAdminUserId}b{_startTimestamp}";
     }
 }

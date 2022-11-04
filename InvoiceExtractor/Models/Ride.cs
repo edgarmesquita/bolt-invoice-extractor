@@ -3,7 +3,7 @@ using Bolt.Business.InvoiceExtractor.Converters;
 
 namespace Bolt.Business.InvoiceExtractor.Models;
 
-public sealed class Rider
+public sealed class Ride
 {
     [JsonPropertyName("id")]
     public string? Id { get; set; }
