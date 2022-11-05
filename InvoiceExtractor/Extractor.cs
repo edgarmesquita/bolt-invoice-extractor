@@ -132,11 +132,10 @@ public class Extractor : IDisposable
         
         _client.UpdateSessionId(tokenInfo.AccessToken);
         
-        int userId;
+        UserInfo userInfo;
         try
         {
-            var userInfo = await _client.GetUserInfoAsync(tokenInfo.AccessToken);
-            userId = userInfo.Id;
+            userInfo = await _client.GetUserInfoAsync(tokenInfo.AccessToken);
         }
         catch
         {
@@ -144,8 +143,7 @@ public class Extractor : IDisposable
 
             try
             {
-                var userInfo = await _client.GetUserInfoAsync(tokenInfo.AccessToken);
-                userId = userInfo.Id;
+                userInfo = await _client.GetUserInfoAsync(tokenInfo.AccessToken);
             }
             catch (Exception ex)
             {
@@ -154,22 +152,39 @@ public class Extractor : IDisposable
             }
         }
 
-        int companyId;
+        Console.WriteLine($"User: {userInfo.FirstName} {userInfo.LastName}");
+        Console.WriteLine($"E-mail: {userInfo.Email}");
+        
+        CompanyInfo? company;
         try
         {
             var companyListData = await _client.GetAssociatedCompaniesForUser(tokenInfo.AccessToken);
-            companyId = companyListData.Companies.FirstOrDefault()?.Id ?? 0;
+            company = companyListData.Companies.FirstOrDefault();
         }
         catch (Exception ex)
         {
             DisplayError(ex);
             return;
         }
-
+        if(company == null) return;
+        
+        Console.WriteLine($"Company: {company.Name}");
+        Console.WriteLine();
+        
         var year = ReadInteger("Type an year", "Invalid year. Assuming current year") ?? DateTime.Now.Year;
         var month = ReadInteger("Type a month (integer between 1 and 12)", "Invalid month. Assuming current month") ?? DateTime.Now.Month;
-        var list = await GetAMonthOfRidersAsync(tokenInfo.AccessToken, companyId, year, month);
+        var list = await GetAMonthOfRidesAsync(tokenInfo.AccessToken, company.Id, year, month);
+        var count = list.Count;
 
+        if (count == 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("No invoices found.");
+            Console.WriteLine("Press enter to exit");
+            Console.ReadLine();
+            return;
+        }
+        
         foreach (var ride in list)
         {
             Console.WriteLine($"Downloading ride {ride.Id} ({ride.OrderTimestamp})");
@@ -177,27 +192,24 @@ public class Extractor : IDisposable
         }
         
         Console.WriteLine();
-        Console.WriteLine("All files downloaded!");
+        Console.WriteLine($"{count} invoices downloaded!");
         Console.WriteLine("Press enter to exit");
         Console.ReadLine();
     }
 
-    private async Task<IEnumerable<Ride>> GetAMonthOfRidersAsync(string accessToken, int companyId, int year, int month)
+    private async Task<List<Ride>> GetAMonthOfRidesAsync(string accessToken, int companyId, int year, int month)
     {
-        var startDate = new DateTime(year, month, 1);
-        var endDate = new DateTime(year, month, 1).AddMonths(1).AddTicks(-1);
-
         var list = new List<Ride>();
         (IEnumerable<Ride> List, int TotalPages) currentPage;
         try
         {
-            currentPage = await GetFilteredRiders(accessToken, companyId, startDate, endDate, 1);
+            currentPage = await GetFilteredRides(accessToken, companyId, year, month, 1);
             list.AddRange(currentPage.List);
         }
         catch (Exception ex)
         {
             DisplayError(ex);
-            return Enumerable.Empty<Ride>();
+            return new List<Ride>();
         }
 
         if (currentPage.TotalPages > 1 && list.Any())
@@ -205,7 +217,7 @@ public class Extractor : IDisposable
             var pages = Enumerable.Range(2, currentPage.TotalPages - 1);
             foreach (var page in pages)
             {
-                var filteredPage = await GetFilteredRiders(accessToken, companyId, startDate, endDate, page);
+                var filteredPage = await GetFilteredRides(accessToken, companyId, year, month, page);
                 if(!filteredPage.List.Any())
                     break;
                 
@@ -216,11 +228,11 @@ public class Extractor : IDisposable
         return list;
     }
 
-    private async Task<(IEnumerable<Ride> List, int TotalPages)> GetFilteredRiders(string accessToken, int companyId, DateTime startDate, DateTime endDate, int page)
+    private async Task<(IEnumerable<Ride> List, int TotalPages)> GetFilteredRides(string accessToken, int companyId, int year, int month, int page)
     {
-        var currentPage = await _client.GetRiderPageAsync(accessToken, companyId, page);
+        var currentPage = await _client.GetRidePageAsync(accessToken, companyId, year, month, page);
         return (currentPage.List
-            .Where(rider => !string.IsNullOrEmpty(rider.InvoiceLink) && rider.OrderTimestamp >= startDate && rider.OrderTimestamp <= endDate)
+            .Where(rider => !string.IsNullOrEmpty(rider.InvoiceLink))
             .ToList(), currentPage.Pagination.TotalPages);
     }
 

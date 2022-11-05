@@ -106,10 +106,16 @@ public class BusinessPortalClient : IDisposable
             : throw new Exception(content?.Message ?? "Bad Request when getting associated companies for user");
     }
     
-    public async Task<RideListData> GetRiderPageAsync(string accessToken, int companyId, int page, int limit = 100)
+    public async Task<RideListData> GetRidePageAsync(
+        string accessToken, int companyId, 
+        int? year = null, int? month = null, 
+        int page = 1, int limit = 100)
     {
-        using var requestMessage = new HttpRequestMessage(HttpMethod.Get,
-            $"https://node.bolt.eu/business-portal/businessPortal/getRidesHistory/?version={Version}&session_id={_sessionId}&company_id={companyId}&limit={limit}&page={page}");
+        var url = $"https://node.bolt.eu/business-portal/businessPortal/getRidesHistory/?version={Version}&session_id={_sessionId}&company_id={companyId}&limit={limit}&page={page}";
+        if (year.HasValue) url += $"&year={year}";
+        if (month.HasValue) url += $"&month={month}";
+        
+        using var requestMessage = new HttpRequestMessage(HttpMethod.Get, url);
         requestMessage.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
         var listResponse = await _client.SendAsync(requestMessage);
