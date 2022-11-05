@@ -2,6 +2,7 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
+using System.Text.Json;
 using Bolt.Business.InvoiceExtractor.Models;
 
 namespace Bolt.Business.InvoiceExtractor;
@@ -9,6 +10,8 @@ namespace Bolt.Business.InvoiceExtractor;
 public class Extractor : IDisposable
 {
     private readonly BusinessPortalClient _client;
+
+    private const string TokenInfoFilename = "TokenInfo.json";
     //594dcd56-0f8e-4a89-b0d4-b6f406cd89c0b1667597933
     public Extractor()
     {
@@ -31,8 +34,10 @@ public class Extractor : IDisposable
         return string.IsNullOrEmpty(loginRequest.Password) ? null : loginRequest;
     }
 
-    private async Task<string?> GetAccessTokenAsync()
+    private async Task<TokenInfo?> GetTokenInfoAsync()
     {
+        var result = new TokenInfo();
+        
         var loginRequest = GetLoginRequest();
         if (loginRequest == null) return null;
 
@@ -53,12 +58,10 @@ public class Extractor : IDisposable
         if (string.IsNullOrEmpty(sms))
             return null;
         
-
-        string? refreshToken;
         try
         {
             var refreshTokenData = await _client.CompleteAuthenticationAsync(sms, verificationToken);
-            refreshToken = refreshTokenData.RefreshToken;
+            result.RefreshToken = refreshTokenData.RefreshToken;
         }
         catch (Exception ex)
         {
@@ -66,11 +69,18 @@ public class Extractor : IDisposable
             return null;
         }
 
-        string? accessToken;
+        result = await UpdateAccessTokenAsync(result);
+        return result;
+    }
+
+    private async Task<TokenInfo?> UpdateAccessTokenAsync(TokenInfo? tokenInfo)
+    {
+        if (tokenInfo == null) return null;
+        
         try
         {
-            var accessTokenData = await _client.GetAccessTokenAsync(refreshToken);
-            accessToken = accessTokenData.AccessToken;
+            var accessTokenData = await _client.GetAccessTokenAsync(tokenInfo.RefreshToken);
+            tokenInfo.AccessToken = accessTokenData.AccessToken;
         }
         catch (Exception ex)
         {
@@ -78,29 +88,74 @@ public class Extractor : IDisposable
             return null;
         }
 
-        return accessToken;
+        return tokenInfo;
+    }
+
+    private static async Task WriteTokenInfoFileAsync(TokenInfo tokenInfo)
+    {
+        var tokenInfoJson = JsonSerializer.Serialize(tokenInfo);
+        await File.WriteAllTextAsync(TokenInfoFilename, tokenInfoJson);
+    }
+    private async Task<TokenInfo?> GetCachedTokenInfoAsync()
+    {
+        if (!File.Exists(TokenInfoFilename))
+        {
+            var tokenInfo = await GetTokenInfoAsync();
+            if(tokenInfo == null) return null;
+
+            await WriteTokenInfoFileAsync(tokenInfo);
+
+            return tokenInfo;
+        }
+        
+        await using var stream = File.OpenRead(TokenInfoFilename);
+        return await JsonSerializer.DeserializeAsync<TokenInfo>(stream);
+    }
+
+    private async Task<TokenInfo?> UpdateCachedTokenInfoAsync(TokenInfo? tokenInfo)
+    {
+        tokenInfo = await UpdateAccessTokenAsync(tokenInfo);
+        if(tokenInfo == null || string.IsNullOrEmpty(tokenInfo.AccessToken)) return null;
+
+        await WriteTokenInfoFileAsync(tokenInfo);
+        
+        _client.UpdateSessionId(tokenInfo.AccessToken);
+        
+        return tokenInfo;
     }
     
     public async Task ExtractAsync()
     {
-        var accessToken = await GetAccessTokenAsync();
-        if (string.IsNullOrEmpty(accessToken)) return;
+        var tokenInfo = await GetCachedTokenInfoAsync();
+        if(tokenInfo == null) return;
         
-        _client.UpdateSessionId(accessToken);
+        if (string.IsNullOrEmpty(tokenInfo.AccessToken)) return;
+        
+        _client.UpdateSessionId(tokenInfo.AccessToken);
         
         int userId;
         try
         {
-            var userInfo = await _client.GetUserInfoAsync(accessToken);
+            var userInfo = await _client.GetUserInfoAsync(tokenInfo.AccessToken);
             userId = userInfo.Id;
         }
-        catch (Exception ex)
+        catch
         {
-            DisplayError(ex);
-            return;
+            await UpdateCachedTokenInfoAsync(tokenInfo);
+
+            try
+            {
+                var userInfo = await _client.GetUserInfoAsync(tokenInfo.AccessToken);
+                userId = userInfo.Id;
+            }
+            catch (Exception ex)
+            {
+                DisplayError(ex);
+                return;
+            }
         }
 
-        var list = await GetAMonthOfRidersAsync(accessToken, userId);
+        var list = await GetAMonthOfRidersAsync(tokenInfo.AccessToken, userId);
 
         foreach (var rider in list)
         {
@@ -154,7 +209,10 @@ public class Extractor : IDisposable
 
     private static void DisplayError(Exception ex)
     {
+        Console.WriteLine();
         Console.WriteLine(ex.Message);
+        
+        Console.WriteLine("Press enter to exit");
         Console.ReadLine();
     }
 
