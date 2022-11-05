@@ -92,6 +92,20 @@ public class BusinessPortalClient : IDisposable
             : throw new Exception(content?.Message ?? "Bad Request when getting user info");
     }
 
+    public async Task<CompanyListData> GetAssociatedCompaniesForUser(string accessToken)
+    {
+        using var requestMessage = new HttpRequestMessage(HttpMethod.Get,
+            $"https://node.bolt.eu/business-portal/businessPortalUser/getAssociatedCompaniesForUser/?version={Version}&session_id={_sessionId}");
+        requestMessage.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+        var response = await _client.SendAsync(requestMessage);
+        var content = await response.Content.ReadFromJsonAsync<CompanyListResponse>();
+
+        return content is { Message: "OK", Data: { } }
+            ? content.Data
+            : throw new Exception(content?.Message ?? "Bad Request when getting associated companies for user");
+    }
+    
     public async Task<RideListData> GetRiderPageAsync(string accessToken, int companyId, int page, int limit = 100)
     {
         using var requestMessage = new HttpRequestMessage(HttpMethod.Get,
@@ -106,10 +120,13 @@ public class BusinessPortalClient : IDisposable
             : throw new Exception(content?.Message ?? "Bad Request when getting riders");
     }
     
-    public async Task DownloadFileAsync(string url, string filename)
+    public async Task DownloadFileAsync(string url, string filename, string folder)
     {
+        if (!Directory.Exists(folder))
+            Directory.CreateDirectory(folder);
+        
         var response = await _client.GetAsync(url);
-        await using var fileStream = new FileStream(filename, FileMode.CreateNew);
+        await using var fileStream = new FileStream(Path.Combine(folder, filename), FileMode.CreateNew);
         await response.Content.CopyToAsync(fileStream);
     }
 

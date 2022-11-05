@@ -6,3 +6,8 @@ public abstract class BoltResponse<TResponse>
     public string? Message { get; set; }
     public TResponse? Data { get; set; }
 }
+
+public static class BoltResponseMessage
+{
+    public const string NotAuthorized = "NOT_AUTHORIZED";
+}
