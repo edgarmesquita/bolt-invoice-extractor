@@ -184,17 +184,43 @@ public class Extractor : IDisposable
             Console.ReadLine();
             return;
         }
+
+        var folder = GetFolderName(year, month);
         
         foreach (var ride in list)
         {
             Console.WriteLine($"Downloading ride {ride.Id} ({ride.OrderTimestamp})");
-            await _client.DownloadFileAsync(ride.InvoiceLink!, $"{ride.Id}.pdf", $"{year}-{month.ToString().PadLeft(2, '0')}");
+            using var progress = new ProgressBar();
+            await _client.DownloadFileAsync(
+            ride.InvoiceLink!, 
+            $"{ride.OrderTimestamp:yyyy-MM-dd-HH-mm-ss}.pdf", 
+            folder, 
+            progress);
         }
         
         Console.WriteLine();
         Console.WriteLine($"{count} invoices downloaded!");
         Console.WriteLine("Press enter to exit");
         Console.ReadLine();
+    }
+
+    private static string GetFolderName(int year, int month)
+    {
+        var path = ReadString("Type the output folder path (Assuming local folder when empty)", "Assuming local folder...", false);
+        var folder = $"{year}-{month.ToString().PadLeft(2, '0')}";
+
+        if (string.IsNullOrEmpty(path)) 
+            return folder;
+        
+        if (Directory.Exists(path))
+            folder = Path.Combine(path, folder);
+        else
+        {
+            Console.WriteLine("Invalid path. Assuming local folder.");
+            Console.WriteLine();
+        }
+
+        return folder;
     }
 
     private async Task<List<Ride>> GetAMonthOfRidesAsync(string accessToken, int companyId, int year, int month)
@@ -245,7 +271,7 @@ public class Extractor : IDisposable
         Console.ReadLine();
     }
 
-    private static string? ReadString(string label, string errorMessage)
+    private static string? ReadString(string label, string errorMessage, bool waitingConfirmation = true)
     {
         Console.WriteLine(label);
         
@@ -255,7 +281,9 @@ public class Extractor : IDisposable
             return text;
         
         Console.WriteLine(errorMessage);
-        Console.ReadLine();
+        
+        if(waitingConfirmation)
+            Console.ReadLine();
         return null;
     }
 

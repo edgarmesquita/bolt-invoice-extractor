@@ -126,14 +126,48 @@ public class BusinessPortalClient : IDisposable
             : throw new Exception(content?.Message ?? "Bad Request when getting riders");
     }
     
-    public async Task DownloadFileAsync(string url, string filename, string folder)
+    public async Task DownloadFileAsync(string url, string filename, string folder, IProgress<double>? progress = null)
     {
         if (!Directory.Exists(folder))
             Directory.CreateDirectory(folder);
         
-        var response = await _client.GetAsync(url);
-        await using var fileStream = new FileStream(Path.Combine(folder, filename), FileMode.CreateNew);
-        await response.Content.CopyToAsync(fileStream);
+        // var response = await _client.GetAsync(url);
+        // await using var fileStream = new FileStream(Path.Combine(folder, filename), FileMode.CreateNew);
+        // await response.Content.CopyToAsync(fileStream);
+
+        using var response = _client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead).Result;
+        response.EnsureSuccessStatusCode();
+
+        var total = response.Content.Headers.ContentLength ?? -1L;
+        
+        await using Stream contentStream = await response.Content.ReadAsStreamAsync(), fileStream = new FileStream(Path.Combine(folder, filename), FileMode.Create, FileAccess.Write, FileShare.None, 8192, true);
+        var totalRead = 0L;
+        var totalReads = 0L;
+        var buffer = new byte[8192];
+        var isMoreToRead = true;
+
+        do
+        {
+            var read = await contentStream.ReadAsync(buffer, 0, buffer.Length);
+            if (read == 0)
+            {
+                isMoreToRead = false;
+            }
+            else
+            {
+                await fileStream.WriteAsync(buffer, 0, read);
+
+                totalRead += read;
+                totalReads += 1;
+
+                if (totalReads % 2000 == 0)
+                {
+                    //Console.WriteLine(string.Format("total bytes downloaded so far: {0:n0}", totalRead));
+                    progress?.Report((totalRead * 1d) / (total * 1d) * 100);
+                }
+            }
+        }
+        while (isMoreToRead);
     }
 
     public void Dispose()
