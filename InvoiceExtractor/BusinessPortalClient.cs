@@ -13,7 +13,7 @@ public class BusinessPortalClient : IDisposable
     private readonly HttpClient _client;
     private string _sessionId;
     private readonly Guid _deviceUid;
-    private const string Version = "BP.11.61";
+    private const string Version = "BP.16.07";
     
     public BusinessPortalClient()
     {
@@ -108,13 +108,28 @@ public class BusinessPortalClient : IDisposable
     
     public async Task<RideListData> GetRidePageAsync(
         string accessToken, int companyId, 
-        int? year = null, int? month = null, 
-        int page = 1, int limit = 100)
+        int? year = null, int? month = null)
     {
-        var url = $"https://node.bolt.eu/business-portal/businessPortal/getRidesHistory/?version={Version}&session_id={_sessionId}&company_id={companyId}&limit={limit}&page={page}";
-        if (year.HasValue) url += $"&year={year}";
-        if (month.HasValue) url += $"&month={month}";
-        
+        var url = $"https://node.bolt.eu/business-portal/businessPortal/v2/getRidesHistory/?version={Version}&session_id={_sessionId}&company_id={companyId}";
+
+        if (year.HasValue)
+        {
+            if (month.HasValue)
+            {
+                var startDate = new DateTime(year.Value, month.Value, 1).ToUnixTimeInSeconds();
+                var endDate = new DateTime(year.Value, month.Value, DateTime.DaysInMonth(year.Value, month.Value), 23, 59, 59, 999).ToUnixTimeInSeconds();
+                
+                url += $"&start_date={startDate}&end_date={endDate}";
+            }
+            else
+            {
+                var startDate = new DateTime(year.Value, 1, 1).ToUnixTime();
+                var endDate = new DateTime(year.Value, 12, DateTime.DaysInMonth(year.Value, 12), 23, 59, 59, 999).ToUnixTime();
+                
+                url += $"&start_date={startDate}&end_date={endDate}";
+            }
+        }
+
         using var requestMessage = new HttpRequestMessage(HttpMethod.Get, url);
         requestMessage.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 

@@ -1,8 +1,10 @@
-﻿using System.IdentityModel.Tokens.Jwt;
+﻿using System.Globalization;
+using System.IdentityModel.Tokens.Jwt;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Bolt.Business.InvoiceExtractor.Models;
 
 namespace Bolt.Business.InvoiceExtractor;
@@ -186,20 +188,29 @@ public class Extractor : IDisposable
         }
 
         var folder = GetFolderName(year, month);
-        
+
+        decimal totalCost = 0;
         foreach (var ride in list)
         {
             Console.WriteLine($"Downloading ride {ride.Id} ({ride.OrderTimestamp})");
             using var progress = new ProgressBar();
             await _client.DownloadFileAsync(
-            ride.InvoiceLink!, 
-            $"{ride.OrderTimestamp:yyyy-MM-dd-HH-mm-ss}.pdf", 
-            folder, 
-            progress);
+                ride.InvoiceLink!, 
+                $"{ride.OrderTimestamp:yyyy-MM-dd-HH-mm-ss}.pdf", 
+                folder, 
+                progress);
+
+            if (string.IsNullOrEmpty(ride.PriceWithVatStr)) 
+                continue;
+            
+            var floatStr = Regex.Match(ride.PriceWithVatStr, @"[-+]?[0-9]*\.?[ 0-9]+").Value;
+            if (decimal.TryParse(floatStr, NumberStyles.Currency, CultureInfo.InvariantCulture, out var cost))
+                totalCost += cost;
         }
         
         Console.WriteLine();
         Console.WriteLine($"{count} invoices downloaded!");
+        Console.WriteLine($"Total cost: {totalCost.ToString("C2", CultureInfo.CurrentCulture)}");
         Console.WriteLine("Press enter to exit");
         Console.ReadLine();
     }
@@ -225,38 +236,21 @@ public class Extractor : IDisposable
 
     private async Task<List<Ride>> GetAMonthOfRidesAsync(string accessToken, int companyId, int year, int month)
     {
-        var list = new List<Ride>();
-        (IEnumerable<Ride> List, int TotalPages) currentPage;
         try
         {
-            currentPage = await GetFilteredRides(accessToken, companyId, year, month, 1);
-            list.AddRange(currentPage.List);
+            var result = await GetFilteredRides(accessToken, companyId, year, month);
+            return result.List.ToList();
         }
         catch (Exception ex)
         {
             DisplayError(ex);
             return new List<Ride>();
         }
-
-        if (currentPage.TotalPages > 1 && list.Any())
-        {
-            var pages = Enumerable.Range(2, currentPage.TotalPages - 1);
-            foreach (var page in pages)
-            {
-                var filteredPage = await GetFilteredRides(accessToken, companyId, year, month, page);
-                if(!filteredPage.List.Any())
-                    break;
-                
-                list.AddRange(filteredPage.List);
-            }
-        }
-
-        return list;
     }
 
-    private async Task<(IEnumerable<Ride> List, int TotalPages)> GetFilteredRides(string accessToken, int companyId, int year, int month, int page)
+    private async Task<(IEnumerable<Ride> List, int TotalPages)> GetFilteredRides(string accessToken, int companyId, int year, int month)
     {
-        var currentPage = await _client.GetRidePageAsync(accessToken, companyId, year, month, page);
+        var currentPage = await _client.GetRidePageAsync(accessToken, companyId, year, month);
         return (currentPage.List
             .Where(rider => !string.IsNullOrEmpty(rider.InvoiceLink))
             .ToList(), currentPage.Pagination.TotalPages);
