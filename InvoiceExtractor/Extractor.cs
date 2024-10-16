@@ -192,14 +192,17 @@ public class Extractor : IDisposable
         decimal totalCost = 0;
         foreach (var ride in list)
         {
-            Console.WriteLine($"Downloading ride {ride.Id} ({ride.OrderTimestamp})");
-            using var progress = new ProgressBar();
-            await _client.DownloadFileAsync(
-                ride.InvoiceLink!, 
-                $"{ride.OrderTimestamp:yyyy-MM-dd-HH-mm-ss}.pdf", 
-                folder, 
-                progress);
-
+            foreach (var userInvoice in ride.UserInvoices.Where(o => !string.IsNullOrEmpty(o.InvoiceLink)))
+            {
+                Console.WriteLine($"Downloading ride {ride.Id} ({ride.OrderTimestamp}), invoice {userInvoice.PublicId}");
+                using var progress = new ProgressBar();
+                await _client.DownloadFileAsync(
+                    userInvoice.InvoiceLink!, 
+                    $"{ride.OrderTimestamp:yyyy-MM-dd-HH-mm-ss}_{userInvoice.PublicId}.pdf", 
+                    folder, 
+                    progress);
+            }
+            
             if (string.IsNullOrEmpty(ride.PriceWithVatStr)) 
                 continue;
             
@@ -252,7 +255,7 @@ public class Extractor : IDisposable
     {
         var currentPage = await _client.GetRidePageAsync(accessToken, companyId, year, month);
         return (currentPage.List
-            .Where(rider => !string.IsNullOrEmpty(rider.InvoiceLink))
+            .Where(rider => rider.UserInvoices.Any(o => !string.IsNullOrEmpty(o.InvoiceLink)))
             .ToList(), currentPage.Pagination.TotalPages);
     }
 

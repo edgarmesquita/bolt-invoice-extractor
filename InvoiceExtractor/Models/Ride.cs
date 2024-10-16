@@ -12,12 +12,12 @@ public sealed class Ride
     [JsonConverter(typeof(UnixDateTimeConverter))]
     public DateTime OrderTimestamp { get; set; }
     
-    [JsonPropertyName("invoice_link")]
-    public string? InvoiceLink { get; set; }
-    
     [JsonPropertyName("price_with_vat_str")]
     public string? PriceWithVatStr { get; set; }
 
     [JsonPropertyName("stops")]
     public string[] Stops { get; set; } = Array.Empty<string>();
+
+    [JsonPropertyName("user_invoices")]
+    public List<UserInvoice> UserInvoices { get; set; } = [];
 }
